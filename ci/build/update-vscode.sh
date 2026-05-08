@@ -2,17 +2,6 @@
 
 set -Eeuo pipefail
 
-function quiet() {
-  "$@" >/dev/null
-}
-
-function indent() {
-  local count=2
-  local space
-  space=$(printf "%${count}s")
-  sed "s/^/$space| /g"
-}
-
 function unapply_patches() {
   local -i exit_code=0
   quiet quilt pop -af || exit_code=$?
@@ -110,31 +99,6 @@ function update_csp() {
   fi
 }
 
-function run() {
-  local -i failed=0
-  rm -f .cache/checklist
-  while (( $# )) ; do
-    local name=$1 ; shift
-    local fn=$1 ; shift
-    # Only run if an earlier step has not failed.
-    if [[ $failed == 0 ]] ; then
-      echo "$name..."
-      if $fn | indent ; then
-        echo "- [X] $name" >> .cache/checklist
-      else
-        ((failed++))
-      fi
-    fi
-    # For all failed steps, write out an empty checkbox.
-    if [[ $failed != 0 ]] ; then
-      echo "- [ ] $name" >> .cache/checklist
-    fi
-  done
-  if [[ $failed != 0 ]] ; then
-    return 1
-  fi
-}
-
 function add_changelog() {
   local file=CHANGELOG.md
   if grep --quiet "Code $target_vscode_version" "$file" ; then
@@ -181,7 +145,7 @@ function main() {
     "Add changelog note" "add_changelog"
   )
 
-  run "${steps[@]}"
+  run-steps "${steps[@]}"
 
   # This step is always manual.
   echo "- [ ] Verify changelog" >> .cache/checklist
