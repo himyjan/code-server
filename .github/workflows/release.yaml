@@ -106,6 +106,9 @@ jobs:
         if: ${{ matrix.vscode_arch == 'x64' }}
       - run: tar -czf package.tar.gz release
         if: ${{ matrix.vscode_arch == 'x64' }}
+      - run: |
+          sed "/^## Unreleased/,/^## / ! d" CHANGELOG.md | head -n -2 | tail -n +3 > .cache/release-notes
+        if: ${{ matrix.vscode_arch == 'x64' }}
       - uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         if: ${{ matrix.vscode_arch == 'x64' }}
         with:
@@ -114,6 +117,7 @@ jobs:
           files: package.tar.gz
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
+          body: .cache/release-notes
 
       # Platform-specific release.
       - run: KEEP_MODULES=1 npm run release
