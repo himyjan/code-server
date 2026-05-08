@@ -7,7 +7,7 @@ on:
         type: string
         required: true
   schedule:
-    - cron: "23 * * * *"
+    - cron: "0 16,21 * * *"
 
 jobs:
   update:
