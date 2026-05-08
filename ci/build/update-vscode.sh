@@ -2,13 +2,24 @@
 
 set -Eeuo pipefail
 
-function remove_patches() {
+function quiet() {
+  "$@" >/dev/null
+}
+
+function indent() {
+  local count=2
+  local space
+  space=$(printf "%${count}s")
+  sed "s/^/$space| /g"
+}
+
+function unapply_patches() {
   local -i exit_code=0
-  quilt pop -af || exit_code=$?
+  quiet quilt pop -af || exit_code=$?
   case $exit_code in
-    # Sucessfully removed.
+    # Sucessfully unapplied.
     0) ;;
-    # No more patches to remove.
+    # No more patches to unapply.
     2) ;;
     # Some error.
     *) return $exit_code ;;
@@ -17,7 +28,7 @@ function remove_patches() {
 
 function update_vscode() {
   pushd lib/vscode
-  if ! git checkout "$target_vscode_version" ; then
+  if ! git checkout 2>&1 "$target_vscode_version" ; then
     echo "$target_vscode_version does not exist locally, fetching..."
     git fetch --all --prune
     git checkout "$target_vscode_version"
@@ -27,9 +38,8 @@ function update_vscode() {
 
 function refresh_patches() {
   local -i exit_code=0
-  while quilt push ; ! (( exit_code=$? )) ; do
+  while quiet quilt push ; ! (( exit_code=$? )) ; do
     quilt refresh
-    echo # Extra new line for separation.
   done
   case $exit_code in
     # No more patches to apply.
@@ -43,7 +53,7 @@ function update_node() {
   local node_version
   node_version=$(cat .node-version)
   if [[ $node_version == "$target_node_version" ]] ; then
-    echo "$node_version already matches $target_node_version"
+    echo "Already set to $target_node_version"
   else
     echo "Updating from $node_version to $target_node_version..."
     echo "$target_node_version" > .node-version
@@ -61,17 +71,28 @@ function get-webview-script-hash() {
 }
 
 function update_csp() {
-  local -i exit_code=0
-  # Move back to the webview patch so it can be refreshed.
-  quilt pop webview || exit_code=$?
-  case $exit_code in
-    # Successfully moved.
-    0) ;;
-    # Already at the patch.
-    2) ;;
-    # Some error.
-    *) return $exit_code ;;
-  esac
+  local current
+  current=$(quilt top 2>/dev/null || echo "")
+  local patch_action=""
+  echo "Currently at ${current:-base}"
+  if [[ $current != */webview.diff ]] ; then
+    echo "Moving to patches/webview.diff..."
+    local -i exit_code=0
+    if quilt applied 2>/dev/null | grep --quiet webview.diff ; then
+      quiet quilt pop webview || exit_code=$?
+      patch_action=pop
+    else
+      quiet quilt push webview || exit_code=$?
+      patch_action=push
+    fi
+    case $exit_code in
+      # Successfully moved.
+      0) ;;
+      # Some error.
+      *) return $exit_code ;;
+    esac
+  fi
+
   local file=lib/vscode/src/vs/workbench/contrib/webview/browser/pre/index.html
   local hash
   hash=$(get-webview-script-hash "$file")
@@ -79,8 +100,14 @@ function update_csp() {
   # Use octothorpe as a delimiter since the hash may contain a slash.
   sed -i.bak "s#script-src 'sha256-[^']\+'#script-src 'sha256-$hash'#" "$file"
   quilt refresh
-  # Get patched back up.
-  quilt push -a
+
+  if [[ $patch_action != "" ]] ; then
+    echo "Moving back to ${current:-base}..."
+    case $patch_action in
+      pop) quiet quilt push "$current" ;;
+      push) quiet quilt pop "${current:--a}" ;;
+    esac
+  fi
 }
 
 function run() {
@@ -91,8 +118,8 @@ function run() {
     local fn=$1 ; shift
     # Only run if an earlier step has not failed.
     if [[ $failed == 0 ]] ; then
-      echo "[+] $name..."
-      if $fn ; then
+      echo "$name..."
+      if $fn | indent ; then
         echo "- [X] $name" >> .cache/checklist
       else
         ((failed++))
@@ -110,7 +137,7 @@ function run() {
 
 function add_changelog() {
   local file=CHANGELOG.md
-  if grep "Code $target_vscode_version" "$file" ; then
+  if grep --quiet "Code $target_vscode_version" "$file" ; then
     echo "Changelog for $target_vscode_version already exists"
   else
     # TODO: This is not exactly robust.  In particular, it needs to handle if
@@ -127,19 +154,28 @@ function main() {
   local target_node_version
   target_node_version=$(grep target lib/vscode/remote/.npmrc | awk -F= '{print $2}' | tr -d '"')
 
-  local target_vscode_version
-  target_vscode_version="${VERSION#v}"
-
   declare -a steps
-  # Removing patches only needs to be done locally; in CI we start from a fresh
-  # clone each time.
-  if [[ ! ${CI-} ]] ; then
-    steps+=("Remove patches" "remove_patches")
+
+  # If version is not set, assume we are already at the target version and the
+  # user is just trying to resolve conflics.
+  local target_vscode_version
+  if [[ ${VERSION-} ]] ; then
+    # Removing patches only needs to be done locally; in CI we start from a
+    # fresh clone each time.
+    if [[ ! ${CI-} ]] ; then
+      steps+=("Unapplying patches" "unapply_patches")
+    fi
+    target_vscode_version="${VERSION#v}"
+    steps+=(
+      "Update VS Code to $target_vscode_version" "update_vscode"
+      "Refresh VS Code patches" "refresh_patches"
+    )
+  else
+    target_vscode_version="$(git -C lib/vscode describe --tags --exact-match)"
+    echo "Detected VS Code version $target_vscode_version"
   fi
 
   steps+=(
-    "Update VS Code to $target_vscode_version" "update_vscode"
-    "Refresh VS Code patches" "refresh_patches"
     "Set Node version to $target_node_version" "update_node"
     "Update CSP webview hash" "update_csp"
     "Add changelog note" "add_changelog"
