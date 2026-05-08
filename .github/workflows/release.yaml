@@ -112,6 +112,8 @@ jobs:
           draft: true
           discussion_category_name: "📣 Announcements"
           files: package.tar.gz
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
 
       # Platform-specific release.
       - run: KEEP_MODULES=1 npm run release
@@ -121,6 +123,8 @@ jobs:
           draft: true
           discussion_category_name: "📣 Announcements"
           files: ./release-packages/*
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
 
   package-macos:
     name: ${{ matrix.vscode_target }}
@@ -181,3 +185,5 @@ jobs:
           draft: true
           discussion_category_name: "📣 Announcements"
           files: ./release-packages/*
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
