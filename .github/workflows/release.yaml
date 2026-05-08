@@ -6,6 +6,11 @@ on:
       version:
         type: string
         required: true
+  pull_request_target:
+    types:
+      - closed
+    branches:
+      - "update/**"
 
 permissions:
   contents: write # For creating releases.
@@ -21,6 +26,7 @@ jobs:
   package-linux:
     name: ${{ format('linux-{0}', matrix.vscode_arch) }}
     runs-on: ubuntu-22.04
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
 
     strategy:
       matrix:
@@ -39,7 +45,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
-      TAG: ${{ inputs.version || github.ref_name }}
+      TAG: ${{ inputs.version || github.event.pull_request.head.ref || github.ref_name }}
       # Set release package name.
       ARCH: ${{ matrix.package_arch }}
       # Cross-compile target.
@@ -64,9 +70,10 @@ jobs:
           curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.3.1/nfpm_2.3.1_`uname -s`_`uname -m`.tar.gz | tar -C ~/.local/bin -zxv nfpm
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Set version to tag without leading v
+      - name: Strip update/ and v from tag
         run: |
-          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+          version=${TAG#update/}
+          echo "VERSION=${version#v}" >> $GITHUB_ENV
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -118,6 +125,7 @@ jobs:
   package-macos:
     name: ${{ matrix.vscode_target }}
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request_merged == true
     strategy:
       matrix:
         include:
@@ -144,9 +152,10 @@ jobs:
           curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.3.1/nfpm_2.3.1_`uname -s`_`uname -m`.tar.gz | tar -C ~/.local/bin -zxv nfpm
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Set version to tag without leading v
+      - name: Strip update/ and v from tag
         run: |
-          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+          version=${TAG#update/}
+          echo "VERSION=${version#v}" >> $GITHUB_ENV
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
